@@ -1,4 +1,4 @@
-# PDF to CSV Data Extractor
+# databasegen
 
 A professional web application that extracts text from PDF files and images, converts them to structured CSV format, and provides SQLite database export capabilities using AI-powered processing.
 
@@ -27,8 +27,8 @@ A professional web application that extracts text from PDF files and images, con
 
 1. **Setup**
    ```bash
-   git clone <repository-url>
-   cd <repository-name>
+   git clone https://github.com/prudhvi1709/databasegen.git
+   cd databasegen
    ```
 
 2. **Run Application**
