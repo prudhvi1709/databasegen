@@ -155,7 +155,6 @@ Use short column names. Include ALL rows visible. No explanations.`;
     ],
     generationConfig: {
       temperature: 0.1,
-      maxOutputTokens: 8192,
     },
   };
 
