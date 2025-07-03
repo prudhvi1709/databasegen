@@ -62,6 +62,46 @@
             </button>
           </div>
 
+          <!-- System Prompt Configuration -->
+          <div class="border rounded p-4 mb-4">
+            <button
+              class="btn btn-outline-secondary btn-sm d-flex align-items-center"
+              type="button"
+              data-bs-toggle="collapse"
+              data-bs-target="#systemPromptCollapse"
+              aria-expanded="false"
+              aria-controls="systemPromptCollapse"
+            >
+              <i class="bi bi-gear-fill me-2"></i>
+              Advanced Settings
+              <i class="bi bi-chevron-down ms-auto"></i>
+            </button>
+            <div class="collapse" id="systemPromptCollapse">
+              <div class="mt-3">
+                <label for="system-prompt-input" class="form-label">System Prompt for Data Extraction:</label>
+                <textarea
+                  id="system-prompt-input"
+                  class="form-control"
+                  rows="6"
+                  placeholder="Enter custom system prompt for data extraction..."
+                ></textarea>
+                <div class="form-text">
+                  Customize how the AI processes your data. Leave empty to use default prompts.
+                </div>
+                <div class="mt-3">
+                  <button id="update-prompt-btn" class="btn btn-success btn-sm">
+                    <i class="bi bi-check-circle me-2"></i>
+                    Update System Prompt
+                  </button>
+                  <button id="reset-prompt-btn" class="btn btn-outline-secondary btn-sm ms-2">
+                    <i class="bi bi-arrow-clockwise me-2"></i>
+                    Reset to Default
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Progress Section -->
           <div id="progress-section" class="border rounded p-4 mb-4" style="display: none">
             <div class="d-flex align-items-center">

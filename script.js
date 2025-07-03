@@ -11,6 +11,7 @@ const LLM_BASE_URL = "https://llmfoundry.straive.com/gemini/v1beta/models/gemini
 let pyodide = null;
 let currentCSVData = null;
 let currentDbBlob = null;
+let customSystemPrompt = null;
 
 // =============================================================================
 // PYODIDE UTILITIES
@@ -127,7 +128,7 @@ async function extractPDFTextFallback(file) {
 }
 
 async function extractImageToPandas(base64Data) {
-  const systemPrompt = `Extract table data from this image and return as pandas code.
+  const defaultSystemPrompt = `Extract table data from this image and return as pandas code.
 
 Return ONLY this format:
 import pandas as pd
@@ -136,6 +137,8 @@ df = pd.DataFrame(data)
 result = df.to_csv(index=False)
 
 Use short column names. Include ALL rows visible. No explanations.`;
+  
+  const systemPrompt = customSystemPrompt ? `${defaultSystemPrompt}\n\nAdditional Instructions:\n${customSystemPrompt}` : defaultSystemPrompt;
   
   const payload = {
     contents: [
@@ -213,7 +216,7 @@ async function convertToCSV(text) {
 }
 
 async function extractToPandasCode(text) {
-  const systemPrompt = `You are a data extraction expert. Analyze the provided text and extract all structured data, then create a complete pandas DataFrame solution.
+  const defaultSystemPrompt = `You are a data extraction expert. Analyze the provided text and extract all structured data, then create a complete pandas DataFrame solution.
 
 Return complete Python code that:
 1. Extracts all structured data from the text
@@ -243,6 +246,8 @@ Instructions:
 - Return ONLY the Python code, no explanations
 
 Text to analyze:`;
+  
+  const systemPrompt = customSystemPrompt ? `${defaultSystemPrompt}\n\nAdditional Instructions:\n${customSystemPrompt}` : defaultSystemPrompt;
 
   const response = await callLLM(systemPrompt, text);
   return response.trim();
@@ -259,22 +264,20 @@ async function executePandasCode(pythonCode) {
     }
     cleanCode = cleanCode.trim();
     
-    // Check if code looks incomplete (truncated)
-    if (!cleanCode.includes('result =') && !cleanCode.includes('df.to_csv')) {
-      throw new Error("Generated code appears incomplete - likely due to token limits");
-    }
     await pyodide.loadPackagesFromImports(cleanCode);
     const dict = pyodide.globals.get("dict");
     const globals = dict();
     await pyodide.runPythonAsync(cleanCode, { globals });
     return globals.get("result");
   } catch (error) {
+    // If pandas code execution fails, fall back to direct CSV generation
+    console.warn("Pandas code execution failed, attempting fallback:", error.message);
     throw new Error(`Pandas code execution failed: ${error.message}`);
   }
 }
 
 async function getLLMGeneratedCSV(text) {
-  const systemPrompt = `You are a data extraction expert. Convert the provided text into a well-structured CSV format.
+  const defaultSystemPrompt = `You are a data extraction expert. Convert the provided text into a well-structured CSV format.
 
 Instructions:
 - Analyze the text to identify structured data (numbers, tables, lists, etc.)
@@ -286,6 +289,8 @@ Instructions:
 - Return only the CSV content, no explanations
 
 Text to convert:`;
+  
+  const systemPrompt = customSystemPrompt ? `${defaultSystemPrompt}\n\nAdditional Instructions:\n${customSystemPrompt}` : defaultSystemPrompt;
 
   const response = await callLLM(systemPrompt, text);
   return response.trim();
@@ -304,7 +309,6 @@ async function callLLM(systemPrompt, userContent) {
     ],
     generationConfig: {
       temperature: 0.1,
-      maxOutputTokens: 4096,
     },
   };
 
@@ -544,6 +548,9 @@ const resultsSection = document.getElementById("results-section");
 const csvContainer = document.getElementById("csv-container");
 const downloadBtn = document.getElementById("download-btn");
 const convertDbBtn = document.getElementById("convert-db-btn");
+const systemPromptInput = document.getElementById("system-prompt-input");
+const updatePromptBtn = document.getElementById("update-prompt-btn");
+const resetPromptBtn = document.getElementById("reset-prompt-btn");
 
 // Initialize app
 async function init() {
@@ -572,6 +579,8 @@ fileInput.addEventListener("change", () => {
 processBtn.addEventListener("click", processFiles);
 downloadBtn.addEventListener("click", () => downloadCSV(currentCSVData));
 convertDbBtn.addEventListener("click", convertToDatabase);
+updatePromptBtn.addEventListener("click", updateSystemPrompt);
+resetPromptBtn.addEventListener("click", resetSystemPrompt);
 
 // Convert CSV to database
 async function convertToDatabase() {
@@ -696,5 +705,41 @@ function showWarning(message) {
   }, 5000);
 }
 
+// =============================================================================
+// SYSTEM PROMPT MANAGEMENT
+// =============================================================================
+function updateSystemPrompt() {
+  const promptText = systemPromptInput.value.trim();
+  
+  if (promptText === "") {
+    showWarning("System prompt cannot be empty. Use 'Reset to Default' to clear the custom prompt.");
+    return;
+  }
+  
+  customSystemPrompt = promptText;
+  showWarning("System prompt updated successfully! It will be used for the next data extraction.");
+  
+  // Optionally save to localStorage for persistence
+  localStorage.setItem('databasegen_custom_prompt', promptText);
+}
+
+function resetSystemPrompt() {
+  customSystemPrompt = null;
+  systemPromptInput.value = "";
+  showWarning("System prompt reset to default. Original prompts will be used for data extraction.");
+  
+  // Remove from localStorage
+  localStorage.removeItem('databasegen_custom_prompt');
+}
+
+function loadSavedSystemPrompt() {
+  const savedPrompt = localStorage.getItem('databasegen_custom_prompt');
+  if (savedPrompt) {
+    customSystemPrompt = savedPrompt;
+    systemPromptInput.value = savedPrompt;
+  }
+}
+
 // Initialize when page loads
-init(); 
+init();
+loadSavedSystemPrompt(); 
