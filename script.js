@@ -22,7 +22,7 @@ async function initPyodide() {
   try {
     const code = `
 import micropip
-await micropip.install(["PyPDF2", "pandas", "sqlite3"])
+await micropip.install(["PyPDF2", "pandas", "sqlite3", "python-docx"])
 `;
     await pyodide.loadPackagesFromImports(code);
     await pyodide.runPythonAsync(code);
@@ -42,13 +42,24 @@ function fileToBase64(file) {
   });
 }
 
+function fileToText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsText(file);
+  });
+}
+
 // =============================================================================
 // TEXT EXTRACTION
 // =============================================================================
 async function extractText(file, pyodide) {
   const fileType = file.type;
+  const fileName = file.name.toLowerCase();
 
-  if (fileType === "application/pdf") {
+  // Check by MIME type first, then fall back to file extension
+  if (fileType === "application/pdf" || fileName.endsWith(".pdf")) {
     if (pyodide) {
       try {
         const base64Data = await fileToBase64(file);
@@ -58,11 +69,20 @@ async function extractText(file, pyodide) {
       }
     }
     return extractPDFTextFallback(file);
-  } else if (fileType.startsWith("image/")) {
+  } else if (fileType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || fileName.endsWith(".docx")) {
+    if (pyodide) {
+      const base64Data = await fileToBase64(file);
+      return await extractWordText(base64Data, pyodide);
+    } else {
+      throw new Error("Word document processing requires Pyodide. Please reload the page.");
+    }
+  } else if (fileType === "text/plain" || fileName.endsWith(".txt")) {
+    return await fileToText(file);
+  } else if (fileType.startsWith("image/") || fileName.match(/\.(png|jpg|jpeg|webp)$/)) {
     const base64Data = await fileToBase64(file);
     return await extractImageToPandas(base64Data);
   } else {
-    throw new Error(`Unsupported file type: ${fileType}`);
+    throw new Error(`Unsupported file type: ${fileType} (${fileName}). Supported formats: .pdf, .docx, .txt, .png, .jpg, .jpeg, .webp`);
   }
 }
 
@@ -92,6 +112,76 @@ result = text.strip()
     return globals.get("result");
   } catch (error) {
     throw new Error(`PDF extraction failed: ${error.message}`);
+  }
+}
+
+async function extractWordText(base64Data, pyodide) {
+  const pythonCode = `
+import io
+import base64
+import zipfile
+from docx import Document
+
+try:
+    # Decode the base64 data
+    docx_data = base64.b64decode(data)
+    docx_file = io.BytesIO(docx_data)
+    
+    # First validate it's a valid ZIP file (DOCX files are ZIP archives)
+    try:
+        with zipfile.ZipFile(docx_file, 'r') as test_zip:
+            # Check if it has the required DOCX structure
+            if 'word/document.xml' not in test_zip.namelist():
+                raise ValueError("Not a valid DOCX file - missing document.xml")
+    except zipfile.BadZipFile:
+        raise ValueError("File is not a valid DOCX document (not a ZIP archive)")
+    
+    # Reset the file pointer
+    docx_file.seek(0)
+    
+    # Load the document
+    doc = Document(docx_file)
+    
+    # Extract text from all paragraphs
+    text = ""
+    for paragraph in doc.paragraphs:
+        if paragraph.text.strip():
+            text += paragraph.text + "\\n"
+    
+    # Extract text from tables
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                if cell.text.strip():
+                    text += cell.text + "\\t"
+            text += "\\n"
+    
+    # If no text found, provide helpful message
+    if not text.strip():
+        text = "No readable text found in the Word document. The document may be empty or contain only images/objects."
+    
+    result = text.strip()
+    
+except Exception as e:
+    result = f"Error processing Word document: {str(e)}"
+  `;
+
+  try {
+    await pyodide.loadPackagesFromImports(pythonCode);
+    const dict = pyodide.globals.get("dict");
+    const globals = dict();
+    globals.set("data", base64Data);
+    await pyodide.runPythonAsync(pythonCode, { globals });
+    const result = globals.get("result");
+    
+    // Check if the result is an error message
+    if (result.startsWith("Error processing Word document:")) {
+      throw new Error(result);
+    }
+    
+    return result;
+  } catch (error) {
+    throw new Error(`Word document extraction failed: ${error.message}`);
   }
 }
 
@@ -636,17 +726,17 @@ async function processFiles() {
         const singleCSV = await executePandasCode(pandasCode);
         csvData += (csvData ? "\n\n" : "") + singleCSV;
       } else {
-        // For PDFs, we collect text first
+        // For PDFs, Word documents, and text files, we collect text first
         const text = await extractText(file, pyodide);
         allText += `\n\n--- ${file.name} ---\n${text}`;
       }
     }
 
-    // Process collected PDF text if any
+    // Process collected text from PDFs, Word documents, and text files if any
     if (allText.trim()) {
-      progressText.textContent = "Converting PDF text to CSV...";
-      const pdfCSV = await convertToCSV(allText.trim());
-      csvData += (csvData ? "\n\n" : "") + pdfCSV;
+      progressText.textContent = "Converting document text to CSV...";
+      const documentCSV = await convertToCSV(allText.trim());
+      csvData += (csvData ? "\n\n" : "") + documentCSV;
     }
 
     if (!csvData || csvData.trim().length === 0) {
